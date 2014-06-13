@@ -1,8 +1,9 @@
 from ws4py.client.threadedclient import WebSocketClient
-from threading import Thread
+from threading import Thread, Lock
 import time
 import json
 import uuid
+from collections import deque
 
 #
 # A simple queue, and the right way to send messages in LivelyClient.  In many
@@ -26,7 +27,7 @@ import uuid
 class MessageQueue:
     def __init__(self, socketClient):
         self.readyToSend = False
-        self.queuedMessages = []
+        self.queuedMessages = deque([])
         self.socketClient = socketClient
     
     def queueToSend(self, action, data, otherID = None):
@@ -38,7 +39,7 @@ class MessageQueue:
     def enableSending(self):
         self.readyToSend = True
         while len(self.queuedMessages) > 0:
-            msg = self.queuedMessages.pop()
+            msg = self.queuedMessages.popleft()
             self.socketClient.send_message(msg['action'], msg['data'], msg['id'])
     
     def disableSending(self):
@@ -67,6 +68,7 @@ class LivelyClient(WebSocketClient):
         self.sendOnConnectionQueue = MessageQueue(self)
         self.sendToPeerQueue = MessageQueue(self)
         self.livelyPeerURL = urlToFind
+        self.sendLock = Lock() # make sure all sends are atomic
         def find_correct_peer(client, data):
             for trackerID in data:
                 client_session = data[trackerID]
@@ -78,7 +80,9 @@ class LivelyClient(WebSocketClient):
                     if session_data['worldURL'] == client.livelyPeerURL:
                         client.otherID = id
                         client.sendToPeerQueue.setTargetID(client.otherID)
+                        client.sendLock.acquire()
                         client.sendToPeerQueue.enableSending()
+                        client.sendLock.release()
                         print 'Found the peer at ' + id
                         return
             # if we get here, it wasn't found.  Since this might be
@@ -146,8 +150,12 @@ class LivelyClient(WebSocketClient):
     
     def opened(self):
         # print 'Connection to Session Tracker Opened!'
+        self.sendLock.acquire()
         self.registerSelf()
+        self.sendLock.release()
+        self.sendLock.acquire()
         self.sendOnConnectionQueue.enableSending()
+        self.sendLock.release()
         
     #
     # Receive a message.  Parse it, look for a handler, and if there
@@ -190,13 +198,17 @@ class LivelyClient(WebSocketClient):
     #
     
     def sendOnConnection(self, action, data):
+        self.sendLock.acquire()
         self.sendOnConnectionQueue.queueToSend(action, data)
+        self.sendLock.release()
     
     #
     # send a message to the peer at 
         
     def sendToPeer(self, action, data):
+        self.sendLock.acquire()
         self.sendToPeerQueue.queueToSend(action, data, self.otherID)
+        self.sendLock.release()
         
 class LivelyClientRunner(Thread):
     def __init__(self, livelyClient):
