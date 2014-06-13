@@ -74,6 +74,7 @@ class LivelyClient(WebSocketClient):
                 for id in client_session:
                     session_data = client_session[id]
                     if not 'worldURL' in session_data: continue
+                    # print session_data['worldURL']
                     if session_data['worldURL'] == client.livelyPeerURL:
                         client.otherID = id
                         client.sendToPeerQueue.setTargetID(client.otherID)
@@ -124,6 +125,10 @@ class LivelyClient(WebSocketClient):
     #
     
     def registerSelf(self):
+        def handle_register_result(client, data):
+            print data
+            client.registerResult = data
+        self.setMessageHandler('registerClientResult', handle_register_result)
         livelyData = {'user':self.user, 'id': self.sessionID, 'worldURL': self.worldURL()}
         self.send(json.dumps({'action':'registerClient', 'data':livelyData}))
         
@@ -162,8 +167,8 @@ class LivelyClient(WebSocketClient):
     # Got a message we didn't understand.  Just print it for now
     #
     
-    def messageNotUnderstood(action, data):
-        print("Got a message we didn't understand.  action: %s, data: %s" % (actiomn, str(data)))
+    def messageNotUnderstood(self, action, data):
+        print("Got a message we didn't understand.  action: %s, data: %s" % (action, str(data)))
     
     #
     # send a mesaage (action, data) to target.  THIS SHOULD ONLY BE CALLED INTERNALLY.
@@ -173,7 +178,7 @@ class LivelyClient(WebSocketClient):
             
     def send_message(self, action, data, otherID = None):
         msg = json.dumps({'action':action, 'data': data, 'target':otherID})
-        # print "Sending message ", msg
+        print "Sending message ", msg
         self.send(msg)
     
     #
@@ -197,10 +202,13 @@ class LivelyClientRunner(Thread):
     def __init__(self, livelyClient):
         Thread.__init__(self)
         self.livelyClient = livelyClient
+        self.daemon = True
     
     def run(self):
         self.livelyClient.connect()
         self.livelyClient.run_forever()
+        
+    
         
 
 
@@ -235,7 +243,7 @@ if __name__ == '__main__':
         livelyClient.close()
         
     except KeyboardInterrupt:
-        runner.__stop()
+        runner.__
         livelyClient.close()
         
         
